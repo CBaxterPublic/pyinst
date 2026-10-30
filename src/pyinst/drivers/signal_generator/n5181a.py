@@ -1,5 +1,6 @@
 from pyinst.instruments import SignalGenerator
 from pyinst.drivers.base import ScpiInstrument
+from pyinst.drivers.utils import query_bool, validate_frequency
 
 
 class N5181A(ScpiInstrument, SignalGenerator):
@@ -15,7 +16,7 @@ class N5181A(ScpiInstrument, SignalGenerator):
 
     @frequency.setter
     def frequency(self, value: float) -> None:
-        self._validate_frequency(value)
+        validate_frequency(self, value)
         self.write(f"SOUR:FREQ {value:g}")
 
     @property
@@ -28,7 +29,7 @@ class N5181A(ScpiInstrument, SignalGenerator):
 
     @property
     def output_enabled(self) -> bool:
-        return self.query_bool("OUTP:STAT?")
+        return query_bool(self, "OUTP:STAT?")
 
     @output_enabled.setter
     def output_enabled(self, value: bool) -> None:

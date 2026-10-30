@@ -4,6 +4,7 @@ from typing import Sequence
 
 from pyinst.instruments import PowerSupply, PowerSupplyChannel
 from pyinst.drivers.base import ScpiInstrument
+from pyinst.drivers.utils import query_bool
 
 
 class E3631xxChannel(PowerSupplyChannel):
@@ -43,7 +44,7 @@ class E3631xxChannel(PowerSupplyChannel):
     @property
     def output_enabled(self) -> bool:
         with self._selected():
-            return self.instrument.query_bool("OUTP:STAT?")
+            return query_bool(self.instrument, "OUTP:STAT?")
 
     @output_enabled.setter
     def output_enabled(self, value: bool) -> None:

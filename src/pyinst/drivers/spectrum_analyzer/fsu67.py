@@ -2,6 +2,7 @@ import numpy as np
 
 from pyinst.instruments import SpectrumAnalyzer
 from pyinst.drivers.base import ScpiInstrument
+from pyinst.drivers.utils import query_bool, validate_frequency
 
 
 class FSU67(ScpiInstrument, SpectrumAnalyzer):
@@ -13,7 +14,7 @@ class FSU67(ScpiInstrument, SpectrumAnalyzer):
 
     @property
     def averaging_count(self) -> int:
-        if not self.query_bool("SENS:AVER:STAT?"):
+        if not query_bool(self, "SENS:AVER:STAT?"):
             return 1
         return int(self.query("SENS:AVER:COUN?"))
 
@@ -34,7 +35,7 @@ class FSU67(ScpiInstrument, SpectrumAnalyzer):
 
     @center_frequency.setter
     def center_frequency(self, value: float) -> None:
-        self._validate_frequency(value)
+        validate_frequency(self, value)
         self.write(f"FREQ:CENT {value:g}")
 
     @property

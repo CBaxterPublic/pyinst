@@ -1,5 +1,43 @@
 import threading
+import weakref
+import pyvisa
 from typing import Protocol
+
+_locks_guard = threading.Lock()
+_connection_locks: dict[tuple, threading.RLock] = {}
+
+
+def _canonical_name(name: str) -> str:
+    try:
+        return pyvisa.rname.to_canonical_name(name).casefold()
+    except Exception:
+        return name.strip().casefold()
+
+
+def _connection_lock(address: str | None = None, session=None) -> threading.RLock:
+    """Return the lock shared by every instrument object on one connection.
+
+    Objects are on the same connection when they use the same VISA resource
+    name, however it is spelled, or the same session object. Commands from them
+    must not interleave, so they share one lock.
+    """
+    name = getattr(session, "resource_name", None)
+    if not isinstance(name, str):
+        name = address
+    if name:
+        key = ("name", _canonical_name(name))
+    else:
+        key = ("session", id(session))
+    with _locks_guard:
+        lock = _connection_locks.get(key)
+        if lock is None:
+            lock = _connection_locks[key] = threading.RLock()
+            if key[0] == "session":
+                try:
+                    weakref.finalize(session, _connection_locks.pop, key, None)
+                except TypeError:
+                    pass  # not weak-referenceable: the entry lives for the process
+        return lock
 
 
 class ScpiSession(Protocol):
@@ -28,7 +66,12 @@ class ScpiInstrument:
         self._resource_manager = None
         self._owns_session = False
         # Re-entrant so multi-command operations can hold it across query()/write().
-        self.lock = threading.RLock()
+        # Shared per connection (resource name or session); see _connection_lock().
+        self.lock = (
+            _connection_lock(address, session)
+            if address or session is not None
+            else threading.RLock()
+        )
 
     @property
     def connected(self) -> bool:
@@ -41,13 +84,7 @@ class ScpiInstrument:
         if not self.address:
             raise ValueError("An instrument address is required to connect")
 
-        try:
-            import pyvisa
-        except ImportError as exc:
-            raise RuntimeError(
-                "PyVISA is required for hardware connections; install pyinst[visa]"
-            ) from exc
-
+        self.lock = _connection_lock(self.address)
         resource_manager = (
             pyvisa.ResourceManager(self.visa_backend)
             if self.visa_backend
@@ -79,21 +116,6 @@ class ScpiInstrument:
             raise RuntimeError("Instrument is not connected")
         with self.lock:
             return self._session.write(command)
-
-    def query_bool(self, command: str) -> bool:
-        response = self.query(command).upper()
-        if response in {"1", "ON"}:
-            return True
-        if response in {"0", "OFF"}:
-            return False
-        raise ValueError(f"Unexpected boolean response to {command!r}: {response!r}")
-
-    def _validate_frequency(self, value: float) -> None:
-        if not self.min_frequency_hz <= value <= self.max_frequency_hz:
-            raise ValueError(
-                f"Frequency {value:g} Hz is outside the supported range "
-                f"{self.min_frequency_hz:g}..{self.max_frequency_hz:g} Hz"
-            )
 
     def disconnect(self) -> None:
         session = self._session
